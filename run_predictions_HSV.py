@@ -117,7 +117,7 @@ for i in range(1):#len(file_names)):
     Img = I.convert("HSV")
     
     # convert to numpy array:
-    Img = np.asarray(I)
+    Img = np.asarray(Img)
     
     bounding_boxes = detect_red_light(Img)
     preds[file_names[i]] = bounding_boxes
