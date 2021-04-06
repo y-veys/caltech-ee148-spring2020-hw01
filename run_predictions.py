@@ -149,8 +149,8 @@ for i in range(len(file_names)):
     Img_HSV = I.convert("HSV")
     Img_HSV = np.array(Img_HSV)
     
-    #mask = Image.fromarray(mask(Img, Img_HSV))
-    #mask.show()
+    # mask = Image.fromarray(mask(Img, Img_HSV))
+    # mask.show()
 
     bounding_boxes, inner_products = detect_red_light(Img, Img_HSV)
 
@@ -165,18 +165,22 @@ for i in range(len(file_names)):
 
     j=0
     while j < len(bounding_boxes)-1: 
-        diff = np.array(bounding_boxes[j+1])-np.array(bounding_boxes[j])
-        diff = np.abs(diff)
-        close = max(diff) < 20
+        k = j + 1 
+        while k < len(bounding_boxes):
+            diff = np.array(bounding_boxes[k])-np.array(bounding_boxes[j])
+            diff = np.abs(diff)
+            close = max(diff) < 20
 
-        if close: 
-            if np.linalg.norm(inner_products[j+1]) > np.linalg.norm(inner_products[j]): 
-                bounding_boxes.remove(bounding_boxes[j+1])
-                inner_products.remove(inner_products[j+1])
-            else: 
-                bounding_boxes.remove(bounding_boxes[j])
-                inner_products.remove(inner_products[j])
-            j -=1
+            if close: 
+                if np.linalg.norm(inner_products[j+1]) > np.linalg.norm(inner_products[j]): 
+                    bounding_boxes.remove(bounding_boxes[j+1])
+                    inner_products.remove(inner_products[j+1])
+                else: 
+                    bounding_boxes.remove(bounding_boxes[j])
+                    inner_products.remove(inner_products[j])
+                j -=1
+                break;
+            k += 1
         j += 1
 
     # preds[file_names[i]] = bounding_boxes
@@ -185,10 +189,10 @@ for i in range(len(file_names)):
         draw = ImageDraw.Draw(I)  
         draw.rectangle([box[1],box[0],box[3],box[2]], fill=None, outline=None, width=1)
         preds[file_names[i]] = bounding_boxes
-    save_name = "results/output_" + file_names[i] 
-    I.save(save_name, "JPEG", quality=95)
+    save_name = "results_2/output_" + file_names[i] 
+    I.save(save_name, "JPEG", quality=85)
 
-save preds (overwrites any previous predictions!)
-with open(os.path.join(preds_path,'preds.json'),'w') as f:
+#save preds (overwrites any previous predictions!)
+with open(os.path.join(preds_path,'preds_2.json'),'w') as f:
     json.dump(preds,f)
 
