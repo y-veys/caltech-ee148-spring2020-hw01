@@ -183,14 +183,15 @@ for i in range(len(file_names)):
             k += 1
         j += 1
 
-    for box in bounding_boxes:
-        draw = ImageDraw.Draw(I)  
-        draw.rectangle([box[1],box[0],box[3],box[2]], fill=None, outline=None, width=1)
-        preds[file_names[i]] = bounding_boxes
-    save_name = "results_2/output_" + file_names[i] 
-    I.save(save_name, "JPEG", quality=85)
+    preds[file_names[i]] = bounding_boxes
+
+    #for box in bounding_boxes:
+    #    draw = ImageDraw.Draw(I)  
+    #    draw.rectangle([box[1],box[0],box[3],box[2]], fill=None, outline=None, width=1)
+    #save_name = "results_2/output_" + file_names[i] 
+    #I.save(save_name, "JPEG", quality=85)
 
 #save preds (overwrites any previous predictions!)
-with open(os.path.join(preds_path,'preds_2.json'),'w') as f:
+with open(os.path.join(preds_path,'preds_3.json'),'w') as f:
     json.dump(preds,f)
 
