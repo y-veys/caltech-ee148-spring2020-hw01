@@ -2,11 +2,26 @@ import os
 import numpy as np
 import json
 from PIL import Image, ImageDraw
+from time import sleep
 
 def flatten_normalize(I):
     I = np.ndarray.flatten(I)
     I = I/np.linalg.norm(I)
     return I 
+
+def check_for_black(I_HSV):
+    H = I_HSV[:,:,0]
+    S = I_HSV[:,:,1]
+    V = I_HSV[:,:,2]
+
+    (n_rows,n_cols) = np.shape(H)
+    count = 0 
+
+    for i in range(n_rows):
+        for j in range(n_cols):
+            if V[i,j] < 55: count += 1
+    
+    return count > 0.15*n_rows*n_cols
 
 def check_for_red(I_HSV):
     H = I_HSV[:,:,0]
@@ -18,32 +33,66 @@ def check_for_red(I_HSV):
 
     for i in range(n_rows):
         for j in range(n_cols):
-            check_1 =(H[i,j] < 40 or H[i,j] > 240) and (S[i,j] > 150) and (V[i,j] > 150)
-            if check_1:
-                count += 1
+            if (H[i,j] < 25 or H[i,j] > 240) and (S[i,j] > 150) and (V[i,j] > 150): count += 1
     
-    return count > 0.1*n_rows*n_cols
+    return count > 0.05*n_rows*n_cols
 
-def filter_red(I, I_HSV):
+def mask(I, I_HSV):
     H = I_HSV[:,:,0]
     S = I_HSV[:,:,1]
     V = I_HSV[:,:,2]
 
     (n_rows,n_cols) = np.shape(H)
 
-    for i in range(n_rows//2):
+    for i in range(n_rows):
         for j in range(n_cols):
-            check_1 =(H[i,j] < 40 or H[i,j] > 240) and (S[i,j] > 150) and (V[i,j] > 150)
-            
-            #check_2 = (H[i,j] < 30 or H[i,j] > 240) and (S[i,j] < 80) and (V[i,j] > 220)
-            #check_3 = (H[i,j] < 30 or H[i,j] > 240) and (S[i,j] > 220) and (V[i,j] < 170)
-            if check_1:# or check_2:# or check_3:
+            if V[i,j] < 55: 
                 I[i,j] = [255,255,255]
+            elif (H[i,j] < 25 or H[i,j] > 240) and (S[i,j] > 150) and (V[i,j] > 150): 
+                I[i,j]= [255,0,0]
             else:
                 I[i,j] = [0,0,0]
     
-    return I[0:n_rows//2,:] 
+    return I[0:n_rows,:] 
     
+def convolve(kernel, bounding_boxes, inner_products, I, I_HSV):
+    response_R = []
+    response_G = []
+    response_B = []
+
+    (n_rows,n_cols,n_channels) = np.shape(I)
+    (kernel_width, kernel_height, _) = np.shape(kernel)
+
+    kernel_R = flatten_normalize(kernel[:,:,0])
+    kernel_G = flatten_normalize(kernel[:,:,1])
+    kernel_B = flatten_normalize(kernel[:,:,2])
+
+    threshold = 0.88
+    
+    for i in range(2*n_rows//3 - kernel_width):
+        for j in range(n_cols - kernel_height):
+            tl_row = i 
+            tl_col = j 
+            br_row = i + kernel_width
+            br_col = j + kernel_height
+
+            patch_HSV = I_HSV[tl_row:br_row,tl_col:br_col,:]
+
+            patch_R = flatten_normalize(I[tl_row:br_row, tl_col:br_col,0])
+            patch_G = flatten_normalize(I[tl_row:br_row, tl_col:br_col,1])
+            patch_B = flatten_normalize(I[tl_row:br_row, tl_col:br_col,2])
+
+            inner_product_R = np.dot(patch_R, kernel_R)
+            inner_product_G = np.dot(patch_G, kernel_G)
+            inner_product_B = np.dot(patch_B, kernel_B)
+
+            if inner_product_R > threshold and inner_product_B > threshold and inner_product_G > threshold: 
+                if check_for_red(patch_HSV) and check_for_black(patch_HSV):
+                    bounding_boxes.append([tl_row,tl_col,br_row,br_col])  
+                    inner_products.append([inner_product_R, inner_product_G, inner_product_B])
+
+    return bounding_boxes, inner_products
+
 def detect_red_light(I, I_HSV):
     '''
     This function takes a numpy array <I> and returns a list <bounding_boxes>.
@@ -59,74 +108,21 @@ def detect_red_light(I, I_HSV):
     I[:,:,2] is the blue channel
     '''
     bounding_boxes = [] # This should be a list of lists, each of length 4. See format example below. 
+    inner_products = [] 
     
-    large_kernel = np.asarray(Image.open('../data/kernels/large_kernel.jpg'))
     # read image using PIL:
-    med_kernel = np.asarray(Image.open('../data/kernels/small_kernel.jpg'))
+    avg_large_kernel = np.asarray(Image.open('../data/large_kernels/aggregated_light.jpg'))
+    avg_med_kernel = np.asarray(Image.open('../data/medium_kernels/aggregated_light.jpg'))
+    avg_small_kernel = np.asarray(Image.open('../data/small_kernels/aggregated_light.jpg'))
 
-    (n_rows,n_cols,n_channels) = np.shape(I)
-    (med_kernel_width, med_kernel_height, _) = np.shape(med_kernel)
-    (large_kernel_width, large_kernel_height, _) = np.shape(large_kernel)
+    bounding_boxes, inner_products = convolve(avg_large_kernel, bounding_boxes, inner_products, I, I_HSV)
+    bounding_boxes, inner_products = convolve(avg_med_kernel, bounding_boxes, inner_products, I, I_HSV)
+    bounding_boxes, inner_products = convolve(avg_small_kernel, bounding_boxes, inner_products, I, I_HSV)
 
-    maximum = -1
-    threshold = 0.85
-
-    med_kernel_R = flatten_normalize(med_kernel[:,:,0])
-    med_kernel_G = flatten_normalize(med_kernel[:,:,1])
-    med_kernel_B = flatten_normalize(med_kernel[:,:,2])
-
-    large_kernel_R = flatten_normalize(large_kernel[:,:,0])
-    large_kernel_G = flatten_normalize(large_kernel[:,:,1])
-    large_kernel_B = flatten_normalize(large_kernel[:,:,2])
-    
-    for i in range(n_rows//2 - med_kernel_width):
-        for j in range(n_cols - med_kernel_height):
-            tl_row = i 
-            tl_col = j 
-            br_row = i + med_kernel_width
-            br_col = j + med_kernel_height
-
-            #patch = I[tl_row:br_row,tl_col:br_col,:]
-            patch_HSV = I_HSV[tl_row:br_row,tl_col:br_col,:]
-
-            patch_R = flatten_normalize(I[tl_row:br_row, tl_col:br_col,0])
-            patch_G = flatten_normalize(I[tl_row:br_row, tl_col:br_col,1])
-            patch_B = flatten_normalize(I[tl_row:br_row, tl_col:br_col,2])
-
-            inner_product_R = np.dot(patch_R, med_kernel_R)
-            inner_product_G = np.dot(patch_G, med_kernel_G)
-            inner_product_B = np.dot(patch_B, med_kernel_B)
-
-            if inner_product_R > threshold and inner_product_B > threshold and inner_product_G > threshold: 
-                if check_for_red(patch_HSV):
-                    bounding_boxes.append([tl_row,tl_col,br_row,br_col])  
-
-    for i in range(n_rows//2 - large_kernel_width):
-        for j in range(n_cols - large_kernel_height):
-            tl_row = i 
-            tl_col = j 
-            br_row = i + large_kernel_width
-            br_col = j + large_kernel_height
-
-            #patch = I[tl_row:br_row,tl_col:br_col,:]
-            patch_HSV = I_HSV[tl_row:br_row,tl_col:br_col,:]
-
-            patch_R = flatten_normalize(I[tl_row:br_row, tl_col:br_col,0])
-            patch_G = flatten_normalize(I[tl_row:br_row, tl_col:br_col,1])
-            patch_B = flatten_normalize(I[tl_row:br_row, tl_col:br_col,2])
-
-            inner_product_R = np.dot(patch_R, large_kernel_R)
-            inner_product_G = np.dot(patch_G, large_kernel_G)
-            inner_product_B = np.dot(patch_B, large_kernel_B)
-
-            if inner_product_R > threshold and inner_product_B > threshold and inner_product_G > threshold: 
-                #if check_for_red(patch_HSV):
-                bounding_boxes.append([tl_row,tl_col,br_row,br_col])  
-    
     for i in range(len(bounding_boxes)):
         assert len(bounding_boxes[i]) == 4
 
-    return bounding_boxes
+    return bounding_boxes, inner_products
 
 # set the path to the downloaded data: 
 data_path = '../data/RedLights2011_Medium'
@@ -142,7 +138,8 @@ file_names = sorted(os.listdir(data_path))
 file_names = [f for f in file_names if '.jpg' in f] 
 
 preds = {}
-for i in [0]:#len(file_names)):
+for i in range(len(file_names)):
+    print(i+1)
     
     # read image using PIL:
     I = Image.open(os.path.join(data_path,file_names[i]))
@@ -152,19 +149,46 @@ for i in [0]:#len(file_names)):
     Img_HSV = I.convert("HSV")
     Img_HSV = np.array(Img_HSV)
     
-    #red_filter = Image.fromarray(filter_red(Img, Img_HSV))
-    #red_filter.show()
-    #filtered_img.save("filtered_red_2.jpg", "JPEG",quality=95)
+    #mask = Image.fromarray(mask(Img, Img_HSV))
+    #mask.show()
 
-    bounding_boxes = detect_red_light(Img, Img_HSV)
-    preds[file_names[i]] = bounding_boxes
-    I.save("output.jpg", "JPEG")
+    bounding_boxes, inner_products = detect_red_light(Img, Img_HSV)
+
+    bounding_boxes = list(bounding_boxes)
+    inner_products = list(inner_products)
+
+    zipped_lists = zip(bounding_boxes, inner_products)
+    sorted_zipped_lists = sorted(zipped_lists)
+
+    inner_products = [element for _, element in sorted_zipped_lists]
+    bounding_boxes.sort()
+
+    j=0
+    while j < len(bounding_boxes)-1: 
+        diff = np.array(bounding_boxes[j+1])-np.array(bounding_boxes[j])
+        diff = np.abs(diff)
+        close = max(diff) < 20
+
+        if close: 
+            if np.linalg.norm(inner_products[j+1]) > np.linalg.norm(inner_products[j]): 
+                bounding_boxes.remove(bounding_boxes[j+1])
+                inner_products.remove(inner_products[j+1])
+            else: 
+                bounding_boxes.remove(bounding_boxes[j])
+                inner_products.remove(inner_products[j])
+            j -=1
+        j += 1
+
+    # preds[file_names[i]] = bounding_boxes
 
     for box in bounding_boxes:
         draw = ImageDraw.Draw(I)  
         draw.rectangle([box[1],box[0],box[3],box[2]], fill=None, outline=None, width=1)
-        I.save("output.jpg", "JPEG")
+        preds[file_names[i]] = bounding_boxes
+    save_name = "results/output_" + file_names[i] 
+    I.save(save_name, "JPEG", quality=95)
 
-# save preds (overwrites any previous predictions!)
+save preds (overwrites any previous predictions!)
 with open(os.path.join(preds_path,'preds.json'),'w') as f:
     json.dump(preds,f)
+
