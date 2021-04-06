@@ -183,8 +183,6 @@ for i in range(len(file_names)):
             k += 1
         j += 1
 
-    # preds[file_names[i]] = bounding_boxes
-
     for box in bounding_boxes:
         draw = ImageDraw.Draw(I)  
         draw.rectangle([box[1],box[0],box[3],box[2]], fill=None, outline=None, width=1)
